@@ -333,7 +333,9 @@ static int hook_service_result(merlin_event *pkt, void *data)
 
 	case NEBTYPE_SERVICECHECK_PROCESSED:
 		unexpire_service(s);
-		if (merlin_sender) {
+		pkt->hdr.selection = DEST_PEERS_MASTERS;
+		node = pgroup_service_node(s->id);
+		if (merlin_sender && merlin_sender == node) {
 			/* network-received events mustn't bounce back */
 			pkt->hdr.code = MAGIC_NONET;
 			set_service_check_node(merlin_sender, s, s->check_type == CHECK_TYPE_PASSIVE);
@@ -342,7 +344,6 @@ static int hook_service_result(merlin_event *pkt, void *data)
 			 * check results should always be sent to peers and masters if
 			 * generated locally.
 			 */
-			pkt->hdr.selection = DEST_PEERS_MASTERS;
 			set_service_check_node(&ipc, s, ds->check_type == CHECK_TYPE_PASSIVE);
 		}
 
@@ -390,7 +391,8 @@ static int hook_host_result(merlin_event *pkt, void *data)
 	/* only send processed host checks */
 	case NEBTYPE_HOSTCHECK_PROCESSED:
 		unexpire_host(h);
-		if (merlin_sender) {
+		node = pgroup_host_node(h->id);
+		if (merlin_sender && merlin_sender == node) {
 			/* network-received events mustn't bounce back */
 			pkt->hdr.code = MAGIC_NONET;
 			set_host_check_node(merlin_sender, h, h->check_type == CHECK_TYPE_PASSIVE);
@@ -872,6 +874,7 @@ static neb_cb_result * hook_notification(merlin_event *pkt, void *data)
 	struct service *s = NULL;
 	struct host *h = NULL;
 	const char *owning_node_name = NULL;
+	merlin_node *node = NULL;
 
 	if (ds->type == NEBTYPE_NOTIFICATION_END){
 
@@ -929,12 +932,14 @@ static neb_cb_result * hook_notification(merlin_event *pkt, void *data)
 		s = (service *)ds->object_ptr;
 		check_type = s->check_type;
 		id = s->id;
+		node = pgroup_service_node(id);
 		ldebug("notif: Checking service notification for %s;%s",
 		       s->host_name, s->description);
 	} else {
 		h = (struct host *)ds->object_ptr;
 		id = h->id;
 		check_type = h->check_type;
+		node = pgroup_host_node(id);
 		ldebug("notif: Checking host notification for %s", h->name);
 	}
 
@@ -978,7 +983,7 @@ static neb_cb_result * hook_notification(merlin_event *pkt, void *data)
 
 			return neb_cb_result_create_full(NEBERROR_CALLBACKCANCEL,
 					"Notification will be handled by a poller (%s)", merlin_sender->name);
-		} else if (merlin_sender->type == MODE_PEER && merlin_sender->id == notifying_node) {
+		} else if (merlin_sender->type == MODE_PEER && merlin_sender == node) {
 			ldebug("notif: Peer will handle its own notifications. Cancelling notification");
 
 			return neb_cb_result_create_full(NEBERROR_CALLBACKCANCEL,
